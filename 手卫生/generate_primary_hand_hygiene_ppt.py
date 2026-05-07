@@ -1,12 +1,14 @@
+from __future__ import annotations
+
+from math import cos, pi, sin
 from pathlib import Path
-from math import cos, sin, pi
 import random
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_AUTO_SHAPE_TYPE
-from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.util import Inches, Pt
 
 
@@ -14,569 +16,594 @@ ROOT = Path(__file__).resolve().parent
 ASSET_DIR = ROOT / "assets"
 OUT_FILE = ROOT / "小学生手卫生.pptx"
 
-IMG_W, IMG_H = 1600, 900
+W, H = 1920, 1080
+SS = 2
 SLIDE_W, SLIDE_H = 13.333333, 7.5
 
-PALETTE = {
-    "blue": (119, 205, 255),
-    "deep_blue": (48, 130, 220),
-    "mint": (143, 224, 188),
-    "green": (92, 184, 92),
-    "yellow": (255, 220, 97),
-    "orange": (255, 166, 77),
-    "pink": (255, 150, 186),
-    "purple": (168, 144, 255),
-    "cream": (255, 248, 220),
-    "white": (255, 255, 255),
-    "ink": (53, 75, 95),
-    "skin": (255, 204, 164),
-    "skin_shadow": (238, 174, 132),
-    "soap": (126, 214, 223),
-    "water": (68, 188, 255),
-}
+NAVY = (27, 61, 96)
+BLUE = (39, 151, 227)
+CYAN = (71, 204, 226)
+MINT = (111, 222, 177)
+GOLD = (255, 205, 92)
+CORAL = (255, 126, 112)
+PINK = (255, 151, 184)
+LAVENDER = (157, 142, 255)
+CREAM = (255, 249, 232)
+WHITE = (255, 255, 255)
+SKIN = (255, 205, 165)
+SKIN_DARK = (226, 154, 119)
+SOAP = (127, 219, 230)
+SHADOW = (39, 73, 105, 70)
 
 
-def blend(c1, c2, t):
-    return tuple(int(c1[i] * (1 - t) + c2[i] * t) for i in range(3))
+def sc(v: float | int) -> int:
+    return int(round(v * SS))
 
 
-def gradient_background(top, bottom):
-    img = Image.new("RGB", (IMG_W, IMG_H), top)
-    draw = ImageDraw.Draw(img)
-    for y in range(IMG_H):
-        color = blend(top, bottom, y / (IMG_H - 1))
-        draw.line([(0, y), (IMG_W, y)], fill=color)
-    return img, draw
+def sbox(box):
+    return tuple(sc(v) for v in box)
 
 
-def add_confetti(draw, seed, density=70):
-    random.seed(seed)
-    colors = [
-        PALETTE["yellow"],
-        PALETTE["pink"],
-        PALETTE["mint"],
-        PALETTE["purple"],
-        PALETTE["orange"],
-        PALETTE["blue"],
-    ]
-    for _ in range(density):
-        x = random.randint(10, IMG_W - 10)
-        y = random.randint(10, IMG_H - 10)
-        r = random.randint(4, 12)
-        color = random.choice(colors)
-        if random.random() < 0.45:
-            draw.ellipse((x - r, y - r, x + r, y + r), fill=color, outline=(255, 255, 255), width=2)
-        else:
-            draw.rounded_rectangle((x - r, y - r, x + r, y + r), radius=4, fill=color)
+def rgba(color, alpha=255):
+    return (*color, alpha) if len(color) == 3 else color
+
+
+def mix(a, b, t):
+    return tuple(int(a[i] * (1 - t) + b[i] * t) for i in range(3))
+
+
+class Art:
+    def __init__(self, top, bottom, seed=0):
+        self.seed = seed
+        self.img = Image.new("RGBA", (W * SS, H * SS), rgba(top))
+        self.draw = ImageDraw.Draw(self.img, "RGBA")
+        for y in range(H * SS):
+            t = y / (H * SS - 1)
+            self.draw.line((0, y, W * SS, y), fill=rgba(mix(top, bottom, t)))
+        self._aurora()
+        self._pattern()
+
+    def _aurora(self):
+        random.seed(self.seed)
+        colors = [CYAN, MINT, LAVENDER, PINK, GOLD]
+        layer = Image.new("RGBA", self.img.size, (0, 0, 0, 0))
+        d = ImageDraw.Draw(layer, "RGBA")
+        for _ in range(8):
+            x = random.randint(-250, W - 150)
+            y = random.randint(-160, H - 120)
+            rw = random.randint(360, 720)
+            rh = random.randint(250, 520)
+            c = random.choice(colors)
+            d.ellipse(sbox((x, y, x + rw, y + rh)), fill=rgba(c, random.randint(32, 64)))
+        layer = layer.filter(ImageFilter.GaussianBlur(sc(45)))
+        self.img.alpha_composite(layer)
+        self.draw = ImageDraw.Draw(self.img, "RGBA")
+
+    def _pattern(self):
+        random.seed(self.seed + 100)
+        for _ in range(80):
+            x = random.randint(20, W - 20)
+            y = random.randint(20, H - 20)
+            r = random.randint(2, 5)
+            self.draw.ellipse(sbox((x - r, y - r, x + r, y + r)), fill=(255, 255, 255, random.randint(45, 95)))
+        for _ in range(16):
+            x = random.randint(40, W - 40)
+            y = random.randint(40, H - 40)
+            r = random.randint(18, 44)
+            self.draw.ellipse(sbox((x - r, y - r, x + r, y + r)), outline=(255, 255, 255, 55), width=sc(2))
+
+    def shadow_round(self, box, radius=36, blur=22, alpha=80, offset=(0, 14)):
+        layer = Image.new("RGBA", self.img.size, (0, 0, 0, 0))
+        d = ImageDraw.Draw(layer, "RGBA")
+        moved = (box[0] + offset[0], box[1] + offset[1], box[2] + offset[0], box[3] + offset[1])
+        d.rounded_rectangle(sbox(moved), radius=sc(radius), fill=(20, 61, 96, alpha))
+        layer = layer.filter(ImageFilter.GaussianBlur(sc(blur)))
+        self.img.alpha_composite(layer)
+        self.draw = ImageDraw.Draw(self.img, "RGBA")
+
+    def rounded(self, box, radius=36, fill=(255, 255, 255, 165), outline=(255, 255, 255, 170), width=2, shadow=True):
+        if shadow:
+            self.shadow_round(box, radius=radius)
+        self.draw.rounded_rectangle(sbox(box), radius=sc(radius), fill=fill, outline=outline, width=sc(width))
+        x1, y1, x2, y2 = box
+        self.draw.line(sbox((x1 + radius, y1 + 8, x2 - radius, y1 + 8)), fill=(255, 255, 255, 110), width=sc(2))
+
+    def circle(self, cx, cy, r, fill, outline=(255, 255, 255, 180), width=3, shadow=True):
+        if shadow:
+            layer = Image.new("RGBA", self.img.size, (0, 0, 0, 0))
+            d = ImageDraw.Draw(layer, "RGBA")
+            d.ellipse(sbox((cx - r, cy - r + 12, cx + r, cy + r + 12)), fill=SHADOW)
+            layer = layer.filter(ImageFilter.GaussianBlur(sc(20)))
+            self.img.alpha_composite(layer)
+            self.draw = ImageDraw.Draw(self.img, "RGBA")
+        self.draw.ellipse(sbox((cx - r, cy - r, cx + r, cy + r)), fill=fill, outline=outline, width=sc(width))
+
+    def save(self, path):
+        out = self.img.resize((W, H), Image.Resampling.LANCZOS).convert("RGB")
+        out.save(path, quality=95)
 
 
 def star_points(cx, cy, outer, inner, points=5):
     pts = []
     for i in range(points * 2):
         angle = -pi / 2 + i * pi / points
-        radius = outer if i % 2 == 0 else inner
-        pts.append((cx + cos(angle) * radius, cy + sin(angle) * radius))
+        r = outer if i % 2 == 0 else inner
+        pts.append((cx + cos(angle) * r, cy + sin(angle) * r))
     return pts
 
 
-def draw_star(draw, cx, cy, size, fill=PALETTE["yellow"]):
-    draw.polygon(star_points(cx, cy, size, size * 0.45), fill=fill, outline=(255, 255, 255))
+def draw_sparkle(a: Art, cx, cy, r, color=GOLD):
+    a.draw.polygon([tuple(sc(v) for v in p) for p in star_points(cx, cy, r, r * 0.42)], fill=rgba(color, 225), outline=rgba(WHITE, 190))
 
 
-def draw_bubble(draw, cx, cy, r, fill=(255, 255, 255), outline=(120, 210, 255), width=4):
-    draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=fill, outline=outline, width=width)
-    draw.ellipse((cx - r * 0.35, cy - r * 0.35, cx - r * 0.08, cy - r * 0.08), fill=(255, 255, 255))
-
-
-def draw_drop(draw, cx, cy, s, fill=None, outline=None):
-    fill = fill or PALETTE["water"]
-    outline = outline or (255, 255, 255)
+def draw_drop(a: Art, cx, cy, s, color=CYAN, alpha=245):
     pts = [
         (cx, cy - 1.25 * s),
-        (cx - 0.72 * s, cy - 0.18 * s),
-        (cx - 0.55 * s, cy + 0.62 * s),
-        (cx, cy + 0.92 * s),
-        (cx + 0.55 * s, cy + 0.62 * s),
-        (cx + 0.72 * s, cy - 0.18 * s),
+        (cx - .72 * s, cy - .10 * s),
+        (cx - .54 * s, cy + .62 * s),
+        (cx, cy + .95 * s),
+        (cx + .54 * s, cy + .62 * s),
+        (cx + .72 * s, cy - .10 * s),
     ]
-    draw.polygon(pts, fill=fill, outline=outline)
-    draw.ellipse((cx - 0.2 * s, cy - 0.48 * s, cx + 0.08 * s, cy - 0.2 * s), fill=(210, 245, 255))
+    a.draw.polygon([tuple(sc(v) for v in p) for p in pts], fill=rgba(color, alpha), outline=rgba(WHITE, 225))
+    a.draw.ellipse(sbox((cx - .22 * s, cy - .52 * s, cx + .06 * s, cy - .22 * s)), fill=rgba(WHITE, 150))
 
 
-def draw_germ(draw, cx, cy, r, color=(130, 220, 110), mood="smile"):
-    outline = (77, 128, 85)
-    for i in range(10):
-        angle = i * 2 * pi / 10
-        x1 = cx + cos(angle) * r * 0.8
-        y1 = cy + sin(angle) * r * 0.8
-        x2 = cx + cos(angle) * r * 1.28
-        y2 = cy + sin(angle) * r * 1.28
-        draw.line((x1, y1, x2, y2), fill=outline, width=max(3, int(r * 0.08)))
-        draw.ellipse((x2 - r * 0.14, y2 - r * 0.14, x2 + r * 0.14, y2 + r * 0.14), fill=color, outline=outline, width=2)
-    draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=color, outline=outline, width=max(4, int(r * 0.08)))
-    eye_y = cy - r * 0.18
-    for ex in (cx - r * 0.35, cx + r * 0.35):
-        draw.ellipse((ex - r * 0.13, eye_y - r * 0.13, ex + r * 0.13, eye_y + r * 0.13), fill=(45, 55, 65))
-        draw.ellipse((ex - r * 0.05, eye_y - r * 0.07, ex, eye_y - r * 0.02), fill=(255, 255, 255))
-    if mood == "wow":
-        draw.ellipse((cx - r * 0.18, cy + r * 0.18, cx + r * 0.18, cy + r * 0.52), fill=(45, 55, 65))
-    elif mood == "sad":
-        draw.arc((cx - r * 0.42, cy + r * 0.28, cx + r * 0.42, cy + r * 0.85), 200, 340, fill=(45, 55, 65), width=4)
+def draw_bubble(a: Art, cx, cy, r, alpha=120):
+    a.draw.ellipse(sbox((cx - r, cy - r, cx + r, cy + r)), fill=(255, 255, 255, alpha), outline=(255, 255, 255, min(230, alpha + 70)), width=sc(2))
+    a.draw.ellipse(sbox((cx - .38 * r, cy - .38 * r, cx - .08 * r, cy - .08 * r)), fill=(255, 255, 255, 160))
+
+
+def draw_germ(a: Art, cx, cy, r, color=MINT, mood="smile"):
+    edge = mix(color, NAVY, .35)
+    for i in range(12):
+        angle = 2 * pi * i / 12
+        x1 = cx + cos(angle) * r * .72
+        y1 = cy + sin(angle) * r * .72
+        x2 = cx + cos(angle) * r * 1.18
+        y2 = cy + sin(angle) * r * 1.18
+        a.draw.line(sbox((x1, y1, x2, y2)), fill=rgba(edge, 210), width=sc(max(3, r * .08)))
+        a.draw.ellipse(sbox((x2 - r * .12, y2 - r * .12, x2 + r * .12, y2 + r * .12)), fill=rgba(color, 235), outline=rgba(WHITE, 160), width=sc(2))
+    a.circle(cx, cy, r, fill=rgba(color, 235), outline=rgba(WHITE, 190), width=3, shadow=True)
+    for ex in (cx - r * .32, cx + r * .32):
+        a.draw.ellipse(sbox((ex - r * .10, cy - r * .2, ex + r * .10, cy)), fill=rgba(NAVY, 230))
+        a.draw.ellipse(sbox((ex - r * .04, cy - r * .17, ex, cy - r * .12)), fill=rgba(WHITE, 230))
+    if mood == "sad":
+        a.draw.arc(sbox((cx - r * .34, cy + r * .22, cx + r * .34, cy + r * .78)), 205, 335, fill=rgba(NAVY, 220), width=sc(4))
+    elif mood == "wow":
+        a.draw.ellipse(sbox((cx - r * .14, cy + r * .18, cx + r * .14, cy + r * .46)), fill=rgba(NAVY, 220))
     else:
-        draw.arc((cx - r * 0.42, cy - r * 0.05, cx + r * 0.42, cy + r * 0.58), 20, 160, fill=(45, 55, 65), width=4)
+        a.draw.arc(sbox((cx - r * .34, cy - r * .05, cx + r * .34, cy + r * .45)), 20, 160, fill=rgba(NAVY, 220), width=sc(4))
 
 
-def draw_hand(draw, cx, cy, scale=1.0, angle=0, outline=(196, 130, 100)):
-    # A friendly cartoon hand built from rounded shapes.
+def draw_hand(a: Art, cx, cy, scale=1.0, glow=True):
     s = scale
-    palm = (cx - 72 * s, cy - 15 * s, cx + 72 * s, cy + 125 * s)
-    draw.rounded_rectangle(palm, radius=int(38 * s), fill=PALETTE["skin"], outline=outline, width=int(5 * s))
-    finger_w = 34 * s
-    starts = [-58, -20, 18, 55]
-    heights = [116, 142, 132, 102]
-    for dx, h in zip(starts, heights):
-        draw.rounded_rectangle(
-            (cx + dx * s - finger_w / 2, cy - h * s, cx + dx * s + finger_w / 2, cy + 15 * s),
-            radius=int(18 * s),
-            fill=PALETTE["skin"],
+    if glow:
+        layer = Image.new("RGBA", a.img.size, (0, 0, 0, 0))
+        d = ImageDraw.Draw(layer, "RGBA")
+        d.ellipse(sbox((cx - 185 * s, cy - 250 * s, cx + 185 * s, cy + 190 * s)), fill=(255, 214, 155, 80))
+        layer = layer.filter(ImageFilter.GaussianBlur(sc(26)))
+        a.img.alpha_composite(layer)
+        a.draw = ImageDraw.Draw(a.img, "RGBA")
+    outline = rgba((178, 108, 84), 210)
+    a.draw.rounded_rectangle(sbox((cx - 82 * s, cy - 16 * s, cx + 82 * s, cy + 142 * s)), radius=sc(48 * s), fill=rgba(SKIN, 255), outline=outline, width=sc(4 * s))
+    for dx, h in [(-62, 132), (-20, 164), (22, 150), (62, 118)]:
+        a.draw.rounded_rectangle(
+            sbox((cx + (dx - 19) * s, cy - h * s, cx + (dx + 19) * s, cy + 28 * s)),
+            radius=sc(20 * s),
+            fill=rgba(SKIN, 255),
             outline=outline,
-            width=int(5 * s),
+            width=sc(4 * s),
         )
-    draw.rounded_rectangle(
-        (cx - 115 * s, cy + 18 * s, cx - 52 * s, cy + 64 * s),
-        radius=int(24 * s),
-        fill=PALETTE["skin"],
-        outline=outline,
-        width=int(5 * s),
-    )
-    for dx in starts:
-        draw.arc((cx + dx * s - 12 * s, cy - 16 * s, cx + dx * s + 12 * s, cy + 18 * s), 0, 180, fill=PALETTE["skin_shadow"], width=max(2, int(3 * s)))
-    return palm
+    a.draw.rounded_rectangle(sbox((cx - 138 * s, cy + 36 * s, cx - 62 * s, cy + 88 * s)), radius=sc(28 * s), fill=rgba(SKIN, 255), outline=outline, width=sc(4 * s))
+    for dx in [-62, -20, 22, 62]:
+        a.draw.arc(sbox((cx + (dx - 11) * s, cy + 0 * s, cx + (dx + 11) * s, cy + 30 * s)), 0, 180, fill=rgba(SKIN_DARK, 170), width=sc(3 * s))
 
 
-def draw_soap(draw, cx, cy, scale=1.0, color=None):
+def draw_two_hands(a: Art, cx, cy, scale=1.0):
+    draw_hand(a, cx - 85 * scale, cy, scale * .82)
+    draw_hand(a, cx + 95 * scale, cy + 12 * scale, scale * .82)
+    for x, y, r in [(cx - 30 * scale, cy - 110 * scale, 38 * scale), (cx + 95 * scale, cy - 125 * scale, 54 * scale), (cx + 180 * scale, cy - 40 * scale, 28 * scale), (cx - 160 * scale, cy - 30 * scale, 32 * scale)]:
+        draw_bubble(a, x, y, r, 130)
+
+
+def draw_soap(a: Art, cx, cy, scale=1.0, color=SOAP):
     s = scale
-    color = color or PALETTE["soap"]
-    draw.rounded_rectangle((cx - 95 * s, cy - 52 * s, cx + 95 * s, cy + 52 * s), radius=int(35 * s), fill=color, outline=(56, 151, 173), width=int(5 * s))
-    draw.arc((cx - 53 * s, cy - 18 * s, cx + 53 * s, cy + 28 * s), 10, 170, fill=(230, 255, 255), width=max(3, int(6 * s)))
-    for dx, dy, r in [(-80, -58, 18), (84, -60, 24), (20, -76, 14), (-18, 68, 13)]:
-        draw_bubble(draw, cx + dx * s, cy + dy * s, r * s, fill=(239, 255, 255), width=max(2, int(3 * s)))
+    a.rounded((cx - 128 * s, cy - 68 * s, cx + 128 * s, cy + 68 * s), radius=45 * s, fill=rgba(color, 230), outline=rgba(WHITE, 210), width=3)
+    a.draw.arc(sbox((cx - 70 * s, cy - 24 * s, cx + 70 * s, cy + 42 * s)), 10, 170, fill=rgba(WHITE, 200), width=sc(8 * s))
+    for dx, dy, r in [(-90, -78, 22), (96, -85, 30), (20, -100, 16), (-20, 86, 16)]:
+        draw_bubble(a, cx + dx * s, cy + dy * s, r * s, 140)
 
 
-def draw_faucet(draw, x, y, scale=1.0):
+def draw_faucet(a: Art, x, y, scale=1.0):
     s = scale
-    metal = (145, 185, 210)
-    dark = (77, 125, 157)
-    draw.rounded_rectangle((x, y, x + 240 * s, y + 52 * s), radius=int(25 * s), fill=metal, outline=dark, width=int(5 * s))
-    draw.rounded_rectangle((x + 172 * s, y + 34 * s, x + 222 * s, y + 126 * s), radius=int(18 * s), fill=metal, outline=dark, width=int(5 * s))
-    draw.rounded_rectangle((x + 40 * s, y - 52 * s, x + 92 * s, y + 16 * s), radius=int(16 * s), fill=metal, outline=dark, width=int(5 * s))
-    draw.ellipse((x + 28 * s, y - 78 * s, x + 104 * s, y - 32 * s), fill=(255, 126, 126), outline=dark, width=int(4 * s))
-    for i in range(4):
-        xx = x + (185 + i * 12) * s
-        draw.line((xx, y + 126 * s, xx - 18 * s, y + 320 * s), fill=PALETTE["water"], width=max(5, int(9 * s)))
-        draw_drop(draw, xx - 20 * s, y + (170 + i * 42) * s, 12 * s)
-
-
-def draw_child(draw, cx, cy, scale=1.0, shirt=None, pose="wave"):
-    s = scale
-    shirt = shirt or PALETTE["yellow"]
-    ink = PALETTE["ink"]
-    # legs and shoes
-    draw.rounded_rectangle((cx - 48 * s, cy + 120 * s, cx - 18 * s, cy + 226 * s), radius=int(12 * s), fill=(80, 140, 224), outline=ink, width=int(4 * s))
-    draw.rounded_rectangle((cx + 18 * s, cy + 120 * s, cx + 48 * s, cy + 226 * s), radius=int(12 * s), fill=(80, 140, 224), outline=ink, width=int(4 * s))
-    draw.ellipse((cx - 74 * s, cy + 214 * s, cx - 8 * s, cy + 242 * s), fill=(255, 255, 255), outline=ink, width=int(4 * s))
-    draw.ellipse((cx + 8 * s, cy + 214 * s, cx + 74 * s, cy + 242 * s), fill=(255, 255, 255), outline=ink, width=int(4 * s))
-    # body
-    draw.rounded_rectangle((cx - 82 * s, cy + 20 * s, cx + 82 * s, cy + 148 * s), radius=int(38 * s), fill=shirt, outline=ink, width=int(5 * s))
-    # arms
-    if pose == "wash":
-        draw.line((cx - 75 * s, cy + 58 * s, cx - 150 * s, cy + 106 * s), fill=PALETTE["skin"], width=int(25 * s))
-        draw.line((cx + 75 * s, cy + 58 * s, cx + 150 * s, cy + 106 * s), fill=PALETTE["skin"], width=int(25 * s))
-    else:
-        draw.line((cx - 74 * s, cy + 62 * s, cx - 150 * s, cy + 10 * s), fill=PALETTE["skin"], width=int(25 * s))
-        draw.line((cx + 74 * s, cy + 62 * s, cx + 138 * s, cy + 120 * s), fill=PALETTE["skin"], width=int(25 * s))
-    draw.ellipse((cx - 166 * s, cy - 6 * s, cx - 126 * s, cy + 34 * s), fill=PALETTE["skin"], outline=ink, width=int(3 * s))
-    draw.ellipse((cx + 120 * s, cy + 102 * s, cx + 160 * s, cy + 142 * s), fill=PALETTE["skin"], outline=ink, width=int(3 * s))
-    # head and hair
-    draw.ellipse((cx - 78 * s, cy - 126 * s, cx + 78 * s, cy + 30 * s), fill=PALETTE["skin"], outline=ink, width=int(5 * s))
-    draw.pieslice((cx - 80 * s, cy - 138 * s, cx + 80 * s, cy - 24 * s), 185, 355, fill=(83, 56, 44), outline=(83, 56, 44))
-    for ex in (cx - 30 * s, cx + 30 * s):
-        draw.ellipse((ex - 8 * s, cy - 52 * s, ex + 8 * s, cy - 36 * s), fill=ink)
-    draw.arc((cx - 34 * s, cy - 38 * s, cx + 34 * s, cy + 4 * s), 18, 162, fill=(204, 78, 88), width=int(4 * s))
-    draw.ellipse((cx - 52 * s, cy - 28 * s, cx - 34 * s, cy - 10 * s), fill=(255, 150, 150))
-    draw.ellipse((cx + 34 * s, cy - 28 * s, cx + 52 * s, cy - 10 * s), fill=(255, 150, 150))
-
-
-def draw_clipboard(draw, x, y, scale=1.0):
-    s = scale
-    draw.rounded_rectangle((x, y, x + 260 * s, y + 350 * s), radius=int(28 * s), fill=(255, 251, 226), outline=PALETTE["ink"], width=int(6 * s))
-    draw.rounded_rectangle((x + 70 * s, y - 28 * s, x + 190 * s, y + 36 * s), radius=int(18 * s), fill=PALETTE["orange"], outline=PALETTE["ink"], width=int(5 * s))
+    metal, edge = (177, 208, 227), (75, 122, 156)
+    a.rounded((x, y, x + 285 * s, y + 60 * s), radius=30 * s, fill=rgba(metal, 238), outline=rgba(edge, 230), width=4, shadow=True)
+    a.rounded((x + 205 * s, y + 38 * s, x + 265 * s, y + 142 * s), radius=18 * s, fill=rgba(metal, 238), outline=rgba(edge, 230), width=4, shadow=False)
+    a.rounded((x + 42 * s, y - 64 * s, x + 106 * s, y + 20 * s), radius=18 * s, fill=rgba(metal, 238), outline=rgba(edge, 230), width=4, shadow=False)
+    a.draw.ellipse(sbox((x + 22 * s, y - 95 * s, x + 126 * s, y - 42 * s)), fill=rgba(CORAL, 230), outline=rgba(edge, 230), width=sc(4 * s))
     for i in range(5):
-        yy = y + (82 + i * 48) * s
-        draw.rounded_rectangle((x + 38 * s, yy - 13 * s, x + 64 * s, yy + 13 * s), radius=int(7 * s), fill=PALETTE["mint"], outline=PALETTE["ink"], width=int(3 * s))
-        draw.line((x + 86 * s, yy, x + 220 * s, yy), fill=(120, 140, 160), width=int(4 * s))
+        xx = x + (220 + i * 13) * s
+        a.draw.line(sbox((xx, y + 140 * s, xx - 18 * s, y + 345 * s)), fill=rgba(CYAN, 205), width=sc(8 * s))
+        draw_drop(a, xx - 24 * s, y + (178 + i * 35) * s, 13 * s, CYAN, 220)
 
 
-def save_img(img, name):
+def draw_child(a: Art, cx, cy, scale=1.0, shirt=MINT, accent=GOLD):
+    s = scale
+    ink = rgba(NAVY, 225)
+    # shadow
+    a.draw.ellipse(sbox((cx - 115 * s, cy + 205 * s, cx + 115 * s, cy + 248 * s)), fill=(35, 72, 105, 42))
+    # legs
+    for dx in [-42, 28]:
+        a.draw.rounded_rectangle(sbox((cx + dx * s, cy + 96 * s, cx + (dx + 34) * s, cy + 205 * s)), radius=sc(14 * s), fill=rgba((65, 133, 211), 255), outline=ink, width=sc(3 * s))
+    a.draw.ellipse(sbox((cx - 76 * s, cy + 195 * s, cx - 5 * s, cy + 228 * s)), fill=rgba(WHITE, 255), outline=ink, width=sc(3 * s))
+    a.draw.ellipse(sbox((cx + 8 * s, cy + 195 * s, cx + 82 * s, cy + 228 * s)), fill=rgba(WHITE, 255), outline=ink, width=sc(3 * s))
+    # body and arms
+    a.draw.rounded_rectangle(sbox((cx - 78 * s, cy - 8 * s, cx + 78 * s, cy + 125 * s)), radius=sc(42 * s), fill=rgba(shirt, 255), outline=ink, width=sc(4 * s))
+    a.draw.rounded_rectangle(sbox((cx - 46 * s, cy + 18 * s, cx + 48 * s, cy + 70 * s)), radius=sc(18 * s), fill=rgba(WHITE, 90), outline=rgba(WHITE, 90), width=sc(1))
+    a.draw.line(sbox((cx - 68 * s, cy + 42 * s, cx - 132 * s, cy + 103 * s)), fill=rgba(SKIN, 255), width=sc(23 * s))
+    a.draw.line(sbox((cx + 68 * s, cy + 42 * s, cx + 132 * s, cy - 8 * s)), fill=rgba(SKIN, 255), width=sc(23 * s))
+    a.draw.ellipse(sbox((cx - 152 * s, cy + 86 * s, cx - 116 * s, cy + 124 * s)), fill=rgba(SKIN, 255), outline=ink, width=sc(2 * s))
+    a.draw.ellipse(sbox((cx + 116 * s, cy - 28 * s, cx + 154 * s, cy + 10 * s)), fill=rgba(SKIN, 255), outline=ink, width=sc(2 * s))
+    # head
+    a.draw.ellipse(sbox((cx - 78 * s, cy - 142 * s, cx + 78 * s, cy + 18 * s)), fill=rgba(SKIN, 255), outline=ink, width=sc(4 * s))
+    a.draw.pieslice(sbox((cx - 82 * s, cy - 155 * s, cx + 82 * s, cy - 36 * s)), 185, 355, fill=rgba((75, 54, 44), 255), outline=rgba((75, 54, 44), 255))
+    a.draw.ellipse(sbox((cx - 85 * s, cy - 92 * s, cx - 58 * s, cy - 48 * s)), fill=rgba((75, 54, 44), 255))
+    for ex in [cx - 30 * s, cx + 30 * s]:
+        a.draw.ellipse(sbox((ex - 7 * s, cy - 64 * s, ex + 7 * s, cy - 48 * s)), fill=ink)
+    a.draw.arc(sbox((cx - 35 * s, cy - 48 * s, cx + 35 * s, cy - 2 * s)), 18, 162, fill=rgba(CORAL, 230), width=sc(4 * s))
+    a.draw.ellipse(sbox((cx - 54 * s, cy - 35 * s, cx - 35 * s, cy - 17 * s)), fill=rgba(PINK, 160))
+    a.draw.ellipse(sbox((cx + 35 * s, cy - 35 * s, cx + 54 * s, cy - 17 * s)), fill=rgba(PINK, 160))
+    draw_sparkle(a, cx + 95 * s, cy - 86 * s, 22 * s, accent)
+
+
+def draw_shield(a: Art, cx, cy, scale=1.0):
+    s = scale
+    pts = [
+        (cx, cy - 220 * s),
+        (cx + 220 * s, cy - 128 * s),
+        (cx + 185 * s, cy + 118 * s),
+        (cx, cy + 260 * s),
+        (cx - 185 * s, cy + 118 * s),
+        (cx - 220 * s, cy - 128 * s),
+    ]
+    a.shadow_round((cx - 240 * s, cy - 220 * s, cx + 240 * s, cy + 285 * s), radius=80 * s, alpha=65)
+    a.draw.polygon([tuple(sc(v) for v in p) for p in pts], fill=rgba((255, 237, 130), 235), outline=rgba(WHITE, 230))
+    a.draw.line([tuple(sc(v) for v in p) for p in pts + [pts[0]]], fill=rgba(BLUE, 235), width=sc(10 * s))
+    a.draw.polygon([tuple(sc(v) for v in p) for p in star_points(cx, cy - 25 * s, 82 * s, 36 * s)], fill=rgba(CORAL, 230), outline=rgba(WHITE, 230))
+
+
+def draw_clock(a: Art, cx, cy, r):
+    a.circle(cx, cy, r, fill=rgba(WHITE, 210), outline=rgba(BLUE, 230), width=8, shadow=True)
+    for angle in range(0, 360, 30):
+        x1 = cx + cos(angle * pi / 180) * r * .78
+        y1 = cy + sin(angle * pi / 180) * r * .78
+        x2 = cx + cos(angle * pi / 180) * r * .9
+        y2 = cy + sin(angle * pi / 180) * r * .9
+        a.draw.line(sbox((x1, y1, x2, y2)), fill=rgba(BLUE, 215), width=sc(4))
+    a.draw.line(sbox((cx, cy, cx, cy - r * .55)), fill=rgba(CORAL, 235), width=sc(12))
+    a.draw.line(sbox((cx, cy, cx + r * .48, cy + r * .32)), fill=rgba(CORAL, 235), width=sc(12))
+    a.circle(cx, cy, 15, fill=rgba(CORAL, 255), shadow=False)
+
+
+def draw_mini_icon(a: Art, cx, cy, kind, color):
+    a.circle(cx, cy, 92, fill=rgba(WHITE, 185), outline=rgba(color, 225), width=5, shadow=True)
+    if kind == "meal":
+        a.draw.ellipse(sbox((cx - 48, cy - 28, cx + 48, cy + 34)), fill=rgba(WHITE, 255), outline=rgba(NAVY, 220), width=sc(3))
+        a.draw.ellipse(sbox((cx - 22, cy - 12, cx + 24, cy + 28)), fill=rgba(GOLD, 255), outline=rgba(NAVY, 180), width=sc(2))
+        a.draw.line(sbox((cx + 70, cy - 48, cx + 70, cy + 48)), fill=rgba(NAVY, 210), width=sc(5))
+    elif kind == "toilet":
+        a.rounded((cx - 40, cy - 52, cx + 36, cy + 4), radius=15, fill=rgba((216, 241, 255), 255), outline=rgba(NAVY, 210), width=3, shadow=False)
+        a.rounded((cx - 22, cy + 0, cx + 58, cy + 55), radius=25, fill=rgba(WHITE, 245), outline=rgba(NAVY, 210), width=3, shadow=False)
+    elif kind == "sneeze":
+        draw_drop(a, cx + 12, cy - 2, 18, CYAN)
+        draw_drop(a, cx + 52, cy - 25, 13, CYAN)
+        a.draw.arc(sbox((cx - 64, cy - 30, cx + 10, cy + 38)), 260, 75, fill=rgba(CORAL, 230), width=sc(9))
+    elif kind == "play":
+        a.draw.arc(sbox((cx - 56, cy - 30, cx + 56, cy + 85)), 185, 355, fill=rgba(BLUE, 230), width=sc(8))
+        a.draw.line(sbox((cx - 56, cy + 28, cx - 56, cy + 76)), fill=rgba(BLUE, 230), width=sc(8))
+        a.draw.line(sbox((cx + 56, cy + 28, cx + 56, cy + 76)), fill=rgba(BLUE, 230), width=sc(8))
+        a.circle(cx, cy + 10, 34, fill=rgba(GOLD, 250), outline=rgba(NAVY, 210), width=3, shadow=False)
+    elif kind == "pet":
+        a.draw.ellipse(sbox((cx - 42, cy - 10, cx + 42, cy + 62)), fill=rgba(WHITE, 255), outline=rgba(NAVY, 210), width=sc(3))
+        for dx, dy in [(-45, -25), (-15, -45), (17, -45), (47, -24)]:
+            a.draw.ellipse(sbox((cx + dx - 16, cy + dy - 16, cx + dx + 16, cy + dy + 16)), fill=rgba(WHITE, 255), outline=rgba(NAVY, 210), width=sc(3))
+    elif kind == "home":
+        a.draw.polygon([tuple(sc(v) for v in p) for p in [(cx - 62, cy - 6), (cx, cy - 62), (cx + 62, cy - 6)]], fill=rgba(CORAL, 240), outline=rgba(NAVY, 220))
+        a.rounded((cx - 45, cy - 5, cx + 45, cy + 62), radius=10, fill=rgba(WHITE, 235), outline=rgba(NAVY, 220), width=3, shadow=False)
+
+
+def save_scene(name, scene_func):
     ASSET_DIR.mkdir(parents=True, exist_ok=True)
     path = ASSET_DIR / name
-    img.save(path)
+    scene_func().save(path)
     return path
 
 
-def slide01():
-    img, d = gradient_background((196, 239, 255), (255, 245, 199))
-    add_confetti(d, 1, 90)
-    # rainbow
-    for i, col in enumerate([(255, 121, 121), (255, 184, 77), (255, 228, 89), (116, 209, 110), (82, 185, 255), (157, 139, 255)]):
-        d.arc((135, 150 + i * 18, 730, 705 + i * 18), 190, 345, fill=col, width=18)
-    d.rounded_rectangle((420, 520, 1180, 780), radius=95, fill=(245, 253, 255), outline=(117, 191, 225), width=10)
-    draw_faucet(d, 680, 310, 0.95)
-    draw_child(d, 410, 480, 1.05, PALETTE["pink"], pose="wash")
-    draw_child(d, 1190, 480, 1.05, PALETTE["mint"], pose="wash")
-    draw_hand(d, 705, 585, 0.75)
-    draw_hand(d, 885, 595, 0.75)
-    draw_soap(d, 1010, 720, 0.65, PALETTE["purple"])
-    for x, y, r in [(690, 520, 35), (815, 500, 52), (910, 520, 32), (1010, 590, 38), (585, 610, 34), (1115, 350, 44), (255, 245, 34)]:
-        draw_bubble(d, x, y, r, fill=(245, 255, 255))
-    for x, y in [(1280, 130), (1430, 230), (230, 680), (1330, 720)]:
-        draw_star(d, x, y, 28)
-    return save_img(img, "slide01_cover.png")
+def scene_cover():
+    a = Art((224, 249, 255), (244, 255, 240), 1)
+    a.rounded((230, 160, 1690, 910), radius=74, fill=(255, 255, 255, 86), outline=(255, 255, 255, 170), width=3)
+    draw_drop(a, 960, 430, 160, CYAN, 230)
+    for r, alpha in [(260, 60), (335, 36), (420, 24)]:
+        a.draw.ellipse(sbox((960 - r, 430 - r, 960 + r, 430 + r)), outline=(255, 255, 255, alpha), width=sc(5))
+    draw_two_hands(a, 960, 705, 1.15)
+    draw_child(a, 445, 680, .9, shirt=(116, 218, 190), accent=GOLD)
+    draw_child(a, 1475, 680, .9, shirt=(255, 174, 190), accent=CYAN)
+    draw_soap(a, 690, 780, .72, SOAP)
+    for x, y, r in [(1240, 245, 42), (1340, 355, 28), (610, 285, 35), (520, 420, 24), (1130, 755, 32)]:
+        draw_bubble(a, x, y, r, 125)
+    for x, y in [(720, 255), (1210, 585), (360, 280), (1550, 255)]:
+        draw_sparkle(a, x, y, 24)
+    return a
 
 
-def slide02():
-    img, d = gradient_background((255, 247, 219), (215, 243, 255))
-    add_confetti(d, 2, 55)
-    cards = [
-        (100, 130, PALETTE["pink"]),
-        (475, 130, PALETTE["yellow"]),
-        (850, 130, PALETTE["mint"]),
-        (1225, 130, PALETTE["purple"]),
-        (290, 515, PALETTE["orange"]),
-        (675, 515, PALETTE["blue"]),
-        (1060, 515, PALETTE["green"]),
+def scene_busy_hands():
+    a = Art((238, 249, 255), (255, 248, 230), 2)
+    a.rounded((170, 150, 1750, 850), radius=70, fill=(255, 255, 255, 94), outline=(255, 255, 255, 170), width=3)
+    items = [
+        (385, 320, "book", MINT),
+        (690, 300, "ball", GOLD),
+        (995, 300, "handle", CORAL),
+        (1300, 320, "apple", PINK),
+        (520, 640, "cup", CYAN),
+        (870, 650, "toy", LAVENDER),
+        (1220, 640, "pet", MINT),
     ]
-    for idx, (x, y, c) in enumerate(cards):
-        d.rounded_rectangle((x, y, x + 260, y + 240), radius=42, fill=(255, 255, 255), outline=c, width=9)
-        if idx == 0:
-            # book and pencil
-            d.rectangle((x + 62, y + 65, x + 200, y + 165), fill=(120, 180, 255), outline=PALETTE["ink"], width=5)
-            d.line((x + 131, y + 65, x + 131, y + 165), fill=(255, 255, 255), width=4)
-            d.polygon([(x + 72, y + 185), (x + 205, y + 135), (x + 218, y + 164), (x + 85, y + 214)], fill=PALETTE["yellow"], outline=PALETTE["ink"])
-        elif idx == 1:
-            # blocks
-            for j, col in enumerate([PALETTE["pink"], PALETTE["mint"], PALETTE["orange"]]):
-                xx = x + 55 + j * 58
-                yy = y + 135 - j * 35
-                d.rounded_rectangle((xx, yy, xx + 72, yy + 72), radius=12, fill=col, outline=PALETTE["ink"], width=4)
-        elif idx == 2:
-            # ball
-            d.ellipse((x + 62, y + 58, x + 198, y + 194), fill=PALETTE["orange"], outline=PALETTE["ink"], width=5)
-            d.arc((x + 72, y + 68, x + 188, y + 184), 60, 240, fill=(255, 255, 255), width=6)
-            d.line((x + 130, y + 58, x + 130, y + 194), fill=(255, 255, 255), width=6)
-        elif idx == 3:
-            # door handle
-            d.rounded_rectangle((x + 86, y + 50, x + 180, y + 198), radius=16, fill=(203, 158, 105), outline=PALETTE["ink"], width=5)
-            d.ellipse((x + 118, y + 105, x + 202, y + 152), fill=PALETTE["yellow"], outline=PALETTE["ink"], width=5)
-        elif idx == 4:
-            # apple
-            d.ellipse((x + 78, y + 88, x + 152, y + 180), fill=(232, 70, 85), outline=PALETTE["ink"], width=4)
-            d.ellipse((x + 122, y + 88, x + 196, y + 180), fill=(232, 70, 85), outline=PALETTE["ink"], width=4)
-            d.line((x + 135, y + 83, x + 155, y + 47), fill=(104, 76, 54), width=7)
-            d.ellipse((x + 155, y + 42, x + 205, y + 76), fill=PALETTE["green"], outline=PALETTE["ink"], width=3)
-        elif idx == 5:
-            # pet paw
-            d.ellipse((x + 76, y + 95, x + 188, y + 205), fill=(255, 255, 255), outline=PALETTE["ink"], width=5)
-            for px, py in [(72, 82), (112, 55), (152, 55), (192, 82)]:
-                d.ellipse((x + px - 20, y + py - 20, x + px + 20, y + py + 20), fill=(255, 255, 255), outline=PALETTE["ink"], width=4)
+    for cx, cy, kind, color in items:
+        a.circle(cx, cy, 105, fill=rgba(WHITE, 190), outline=rgba(color, 225), width=5)
+        if kind == "book":
+            a.rounded((cx - 58, cy - 42, cx + 58, cy + 50), radius=12, fill=rgba((108, 179, 255), 235), outline=rgba(NAVY, 220), width=3, shadow=False)
+            a.draw.line(sbox((cx, cy - 42, cx, cy + 50)), fill=rgba(WHITE, 200), width=sc(4))
+        elif kind == "ball":
+            a.circle(cx, cy, 62, fill=rgba(CORAL, 240), outline=rgba(NAVY, 210), width=3, shadow=False)
+            a.draw.arc(sbox((cx - 54, cy - 54, cx + 54, cy + 54)), 70, 250, fill=rgba(WHITE, 220), width=sc(5))
+        elif kind == "handle":
+            a.rounded((cx - 35, cy - 80, cx + 35, cy + 80), radius=16, fill=rgba((204, 161, 110), 240), outline=rgba(NAVY, 210), width=3, shadow=False)
+            a.draw.ellipse(sbox((cx - 2, cy - 18, cx + 78, cy + 24)), fill=rgba(GOLD, 245), outline=rgba(NAVY, 210), width=sc(3))
+        elif kind == "apple":
+            a.draw.ellipse(sbox((cx - 52, cy - 20, cx + 4, cy + 58)), fill=rgba(CORAL, 245), outline=rgba(NAVY, 210), width=sc(3))
+            a.draw.ellipse(sbox((cx - 5, cy - 20, cx + 52, cy + 58)), fill=rgba(CORAL, 245), outline=rgba(NAVY, 210), width=sc(3))
+            a.draw.line(sbox((cx, cy - 24, cx + 22, cy - 70)), fill=rgba((120, 80, 54), 230), width=sc(6))
+        elif kind == "cup":
+            a.rounded((cx - 48, cy - 68, cx + 48, cy + 62), radius=20, fill=rgba((157, 224, 255), 230), outline=rgba(NAVY, 210), width=3, shadow=False)
+        elif kind == "toy":
+            for dx, dy, c in [(-42, 18, PINK), (15, -22, MINT), (58, 22, GOLD)]:
+                a.rounded((cx + dx - 37, cy + dy - 37, cx + dx + 37, cy + dy + 37), radius=12, fill=rgba(c, 240), outline=rgba(NAVY, 210), width=3, shadow=False)
         else:
-            # water cup
-            d.rounded_rectangle((x + 80, y + 52, x + 180, y + 200), radius=22, fill=(160, 220, 255), outline=PALETTE["ink"], width=5)
-            d.arc((x + 165, y + 90, x + 230, y + 160), -80, 80, fill=PALETTE["ink"], width=6)
-        for gx, gy in [(x + 212, y + 48), (x + 40, y + 206)]:
-            draw_germ(d, gx, gy, 23, random.choice([(122, 220, 109), (255, 150, 186), (168, 144, 255)]))
-    d.line((230, 440, 1360, 440), fill=(255, 190, 92), width=14)
-    for x in [230, 475, 730, 980, 1220, 1360]:
-        draw_drop(d, x, 440, 22, fill=PALETTE["orange"])
-    return save_img(img, "slide02_busy_hands.png")
+            draw_mini_icon(a, cx, cy, "pet", color)
+        draw_germ(a, cx + 84, cy - 78, 22, random.choice([MINT, PINK, LAVENDER, GOLD]), "smile")
+    a.draw.line(sbox((305, 505, 1580, 505)), fill=rgba(BLUE, 155), width=sc(10))
+    for x in [305, 565, 825, 1085, 1345, 1580]:
+        draw_drop(a, x, 505, 18, CYAN, 210)
+    return a
 
 
-def slide03():
-    img, d = gradient_background((226, 249, 255), (255, 236, 245))
-    add_confetti(d, 3, 60)
-    draw_hand(d, 705, 520, 2.0)
-    # magnifying glass
-    d.ellipse((760, 120, 1340, 700), fill=(235, 252, 255), outline=PALETTE["deep_blue"], width=18)
-    d.line((1210, 635, 1460, 825), fill=PALETTE["deep_blue"], width=38)
-    d.line((1224, 620, 1474, 810), fill=(255, 255, 255), width=8)
-    germ_specs = [
-        (950, 300, 54, (126, 224, 110), "smile"),
-        (1090, 420, 42, (255, 164, 83), "wow"),
-        (875, 515, 38, (255, 146, 186), "smile"),
-        (1205, 530, 50, (160, 144, 255), "smile"),
-        (1035, 610, 34, (100, 210, 225), "wow"),
-    ]
-    for spec in germ_specs:
-        draw_germ(d, *spec)
-    draw_child(d, 305, 560, 1.0, PALETTE["yellow"], pose="wave")
-    for x, y, r in [(118, 168, 40), (208, 260, 28), (1406, 155, 44), (1410, 670, 28)]:
-        draw_bubble(d, x, y, r)
-    return save_img(img, "slide03_tiny_germs.png")
-
-
-def slide04():
-    img, d = gradient_background((235, 252, 239), (221, 238, 255))
-    add_confetti(d, 4, 80)
-    # shield
-    shield = [(800, 130), (1120, 235), (1080, 555), (800, 745), (520, 555), (480, 235)]
-    d.polygon(shield, fill=(255, 245, 132), outline=PALETTE["deep_blue"])
-    d.line(shield + [shield[0]], fill=PALETTE["deep_blue"], width=15)
-    d.polygon(star_points(800, 410, 110, 48), fill=(255, 168, 69), outline=(255, 255, 255))
-    draw_hand(d, 800, 470, 1.25)
-    for gx, gy, r, c in [
-        (245, 230, 55, (122, 220, 109)),
-        (322, 620, 44, (255, 145, 185)),
-        (1340, 285, 58, (160, 144, 255)),
-        (1270, 670, 45, (255, 170, 80)),
+def scene_germs():
+    a = Art((224, 249, 255), (255, 240, 247), 3)
+    a.rounded((155, 150, 760, 835), radius=68, fill=(255, 255, 255, 98), outline=(255, 255, 255, 170), width=3)
+    draw_child(a, 445, 675, .92, shirt=GOLD, accent=CYAN)
+    draw_hand(a, 620, 520, 1.2)
+    a.circle(1200, 505, 310, fill=rgba((237, 253, 255), 184), outline=rgba(BLUE, 230), width=10)
+    a.draw.line(sbox((1395, 720, 1660, 925)), fill=rgba(BLUE, 220), width=sc(38))
+    for x, y, r, c, m in [
+        (1100, 390, 56, MINT, "smile"),
+        (1250, 470, 45, CORAL, "wow"),
+        (1160, 610, 40, PINK, "smile"),
+        (1350, 610, 52, LAVENDER, "smile"),
+        (1315, 330, 34, GOLD, "wow"),
     ]:
-        draw_germ(d, gx, gy, r, c, "sad")
-        d.line((gx, gy, 800, 420), fill=(255, 255, 255), width=5)
-    for x, y in [(210, 735), (1430, 130), (500, 110), (1120, 780)]:
-        draw_star(d, x, y, 32)
-    draw_soap(d, 245, 470, 0.75)
-    draw_drop(d, 1360, 480, 48)
-    return save_img(img, "slide04_health_shield.png")
+        draw_germ(a, x, y, r, c, m)
+    for x, y, r in [(875, 225, 40), (1600, 210, 34), (1530, 770, 28)]:
+        draw_bubble(a, x, y, r, 120)
+    return a
 
 
-def slide05():
-    img, d = gradient_background((255, 249, 221), (221, 247, 255))
-    add_confetti(d, 5, 70)
-    draw_child(d, 800, 475, 1.05, PALETTE["mint"], pose="wave")
-    centers = [(320, 200), (620, 170), (980, 170), (1280, 225), (430, 675), (1135, 685)]
-    colors = [PALETTE["pink"], PALETTE["yellow"], PALETTE["orange"], PALETTE["blue"], PALETTE["purple"], PALETTE["green"]]
-    for i, (cx, cy) in enumerate(centers):
-        d.ellipse((cx - 110, cy - 110, cx + 110, cy + 110), fill=(255, 255, 255), outline=colors[i], width=10)
-    # meal
-    d.ellipse((240, 145, 400, 245), fill=(255, 255, 255), outline=PALETTE["ink"], width=5)
-    d.ellipse((285, 170, 355, 220), fill=(255, 220, 97), outline=PALETTE["ink"], width=4)
-    d.line((415, 135, 415, 265), fill=PALETTE["ink"], width=7)
-    d.line((435, 145, 435, 255), fill=PALETTE["ink"], width=7)
-    # toilet
-    d.rounded_rectangle((570, 118, 670, 200), radius=20, fill=(210, 240, 255), outline=PALETTE["ink"], width=5)
-    d.rounded_rectangle((590, 195, 690, 260), radius=28, fill=(230, 250, 255), outline=PALETTE["ink"], width=5)
-    # sneeze
-    draw_child(d, 980, 180, 0.38, PALETTE["yellow"])
-    for x in [1060, 1095, 1130]:
-        draw_drop(d, x, 175 + (x - 1060) * 0.15, 12, fill=PALETTE["blue"])
-    # playground
-    d.arc((1210, 170, 1350, 330), 180, 360, fill=PALETTE["deep_blue"], width=9)
-    d.line((1210, 250, 1210, 330), fill=PALETTE["deep_blue"], width=9)
-    d.line((1350, 250, 1350, 330), fill=PALETTE["deep_blue"], width=9)
-    d.ellipse((1245, 210, 1315, 280), fill=PALETTE["orange"], outline=PALETTE["ink"], width=4)
-    # pet
-    d.ellipse((360, 650, 500, 760), fill=(255, 255, 255), outline=PALETTE["ink"], width=5)
-    for px, py in [(350, 625), (400, 595), (455, 595), (505, 625)]:
-        d.ellipse((px - 28, py - 28, px + 28, py + 28), fill=(255, 255, 255), outline=PALETTE["ink"], width=5)
-    # home/school
-    d.polygon([(1050, 690), (1135, 610), (1220, 690)], fill=PALETTE["orange"], outline=PALETTE["ink"])
-    d.rounded_rectangle((1075, 690, 1195, 775), radius=12, fill=(255, 255, 255), outline=PALETTE["ink"], width=5)
-    d.rounded_rectangle((1120, 725, 1150, 775), radius=7, fill=PALETTE["mint"], outline=PALETTE["ink"], width=3)
-    for x, y in [(160, 420), (1430, 515), (760, 90), (830, 790)]:
-        draw_bubble(d, x, y, 28)
-    return save_img(img, "slide05_when_to_wash.png")
+def scene_shield():
+    a = Art((230, 255, 241), (226, 241, 255), 4)
+    a.rounded((190, 135, 1730, 875), radius=78, fill=(255, 255, 255, 84), outline=(255, 255, 255, 170), width=3)
+    draw_shield(a, 960, 515, 1.05)
+    draw_two_hands(a, 960, 630, .82)
+    for gx, gy, r, c in [(350, 330, 56, MINT), (430, 710, 44, PINK), (1545, 360, 58, LAVENDER), (1450, 720, 46, CORAL)]:
+        draw_germ(a, gx, gy, r, c, "sad")
+        a.draw.line(sbox((gx, gy, 960, 490)), fill=rgba(WHITE, 90), width=sc(5))
+    draw_soap(a, 360, 555, .65, SOAP)
+    draw_drop(a, 1510, 535, 52, CYAN, 230)
+    for x, y in [(620, 230), (1280, 240), (1185, 800), (590, 790)]:
+        draw_sparkle(a, x, y, 24)
+    return a
 
 
-def slide06():
-    img, d = gradient_background((236, 248, 255), (251, 238, 255))
-    add_confetti(d, 6, 55)
-    centers = [(270, 250), (555, 200), (845, 215), (1130, 285), (1030, 610), (715, 670), (390, 600)]
-    for i, (cx, cy) in enumerate(centers, 1):
-        d.ellipse((cx - 105, cy - 105, cx + 105, cy + 105), fill=(255, 255, 255), outline=random.choice([PALETTE["pink"], PALETTE["mint"], PALETTE["orange"], PALETTE["purple"], PALETTE["blue"]]), width=8)
-        draw_hand(d, cx - 14, cy - 6, 0.45)
-        draw_hand(d, cx + 44, cy + 10, 0.45)
-        d.ellipse((cx - 100, cy - 100, cx - 42, cy - 42), fill=PALETTE["yellow"], outline=PALETTE["ink"], width=4)
-        # Use simple digits inside the illustration; Chinese labels are added in PPT.
-        d.text((cx - 82, cy - 94), str(i), fill=PALETTE["ink"])
-        for bx, by, r in [(cx + 78, cy - 72, 12), (cx + 92, cy + 8, 18), (cx - 86, cy + 75, 14)]:
-            draw_bubble(d, bx, by, r, width=3)
-    for i in range(len(centers) - 1):
-        x1, y1 = centers[i]
-        x2, y2 = centers[i + 1]
-        d.line((x1, y1, x2, y2), fill=(122, 196, 255), width=10)
-        draw_drop(d, (x1 + x2) / 2, (y1 + y2) / 2, 16)
-    draw_soap(d, 1325, 650, 0.65, PALETTE["pink"])
-    return save_img(img, "slide06_seven_steps.png")
-
-
-def slide07():
-    img, d = gradient_background((255, 245, 219), (226, 248, 255))
-    add_confetti(d, 7, 80)
-    # big timer
-    d.ellipse((570, 110, 1030, 570), fill=(255, 255, 255), outline=PALETTE["deep_blue"], width=14)
-    d.rounded_rectangle((725, 62, 875, 124), radius=26, fill=PALETTE["yellow"], outline=PALETTE["deep_blue"], width=7)
-    d.line((800, 340, 800, 190), fill=PALETTE["orange"], width=14)
-    d.line((800, 340, 915, 410), fill=PALETTE["orange"], width=14)
-    for angle in range(0, 360, 30):
-        x1 = 800 + cos(angle * pi / 180) * 185
-        y1 = 340 + sin(angle * pi / 180) * 185
-        x2 = 800 + cos(angle * pi / 180) * 205
-        y2 = 340 + sin(angle * pi / 180) * 205
-        d.line((x1, y1, x2, y2), fill=PALETTE["deep_blue"], width=5)
-    for mx, my in [(285, 260), (375, 185), (1180, 250), (1270, 170), (1130, 500)]:
-        d.ellipse((mx - 18, my - 18, mx + 18, my + 18), fill=PALETTE["purple"], outline=PALETTE["ink"], width=3)
-        d.line((mx + 16, my - 8, mx + 16, my - 100), fill=PALETTE["purple"], width=8)
-        d.arc((mx + 14, my - 115, mx + 84, my - 55), 180, 355, fill=PALETTE["purple"], width=8)
-    draw_hand(d, 425, 645, 0.85)
-    draw_soap(d, 610, 695, 0.72)
-    draw_faucet(d, 960, 570, 0.75)
-    for x, y, r in [(165, 625, 36), (245, 700, 24), (1390, 620, 42), (1215, 725, 30)]:
-        draw_bubble(d, x, y, r)
-    return save_img(img, "slide07_20_seconds.png")
-
-
-def slide08():
-    img, d = gradient_background((232, 255, 237), (255, 247, 216))
-    add_confetti(d, 8, 65)
-    # lab table
-    d.rounded_rectangle((130, 640, 1470, 820), radius=38, fill=(255, 210, 142), outline=PALETTE["ink"], width=7)
-    d.ellipse((420, 240, 910, 640), fill=(225, 246, 255), outline=PALETTE["deep_blue"], width=10)
-    d.ellipse((480, 310, 850, 560), fill=(137, 214, 255), outline=(255, 255, 255), width=5)
-    random.seed(80)
-    for _ in range(80):
-        x = random.randint(510, 820)
-        y = random.randint(340, 530)
-        if ((x - 665) / 185) ** 2 + ((y - 435) / 125) ** 2 < 1:
-            d.ellipse((x - 5, y - 5, x + 5, y + 5), fill=(69, 78, 88))
-    draw_soap(d, 1090, 500, 0.8, PALETTE["pink"])
-    draw_hand(d, 1080, 270, 0.75)
-    for angle in range(0, 360, 30):
-        x1 = 665 + cos(angle * pi / 180) * 85
-        y1 = 435 + sin(angle * pi / 180) * 58
-        x2 = 665 + cos(angle * pi / 180) * 165
-        y2 = 435 + sin(angle * pi / 180) * 112
-        d.line((x1, y1, x2, y2), fill=(255, 255, 255), width=5)
-    draw_child(d, 250, 485, 0.85, PALETTE["mint"], pose="wave")
-    d.ellipse((1225, 150, 1455, 330), fill=(255, 255, 255), outline=PALETTE["orange"], width=8)
-    d.line((1250, 270, 1430, 190), fill=PALETTE["orange"], width=12)
-    for x, y in [(1260, 172), (1350, 155), (1425, 188), (1330, 295)]:
-        draw_bubble(d, x, y, 18)
-    return save_img(img, "slide08_science_experiment.png")
-
-
-def slide09():
-    img, d = gradient_background((255, 237, 237), (231, 248, 255))
-    add_confetti(d, 9, 55)
-    draw_child(d, 520, 510, 1.15, PALETTE["yellow"], pose="wave")
-    # bent elbow/tissue
-    d.rounded_rectangle((640, 405, 820, 505), radius=45, fill=PALETTE["skin"], outline=PALETTE["ink"], width=5)
-    d.rounded_rectangle((785, 390, 910, 520), radius=25, fill=(255, 255, 255), outline=PALETTE["deep_blue"], width=5)
-    for x, y, r, c in [(1030, 245, 43, (122, 220, 109)), (1175, 360, 38, (255, 150, 186)), (1080, 560, 34, (160, 144, 255))]:
-        draw_germ(d, x, y, r, c, "wow")
-    # stop sign
-    d.rounded_rectangle((920, 225, 995, 620), radius=32, fill=(255, 255, 255), outline=PALETTE["orange"], width=9)
-    for yy in [285, 405, 525]:
-        d.line((935, yy, 980, yy), fill=PALETTE["orange"], width=11)
-    # trash bin
-    d.rounded_rectangle((1160, 640, 1325, 805), radius=25, fill=(185, 226, 201), outline=PALETTE["ink"], width=6)
-    d.rectangle((1145, 612, 1340, 650), fill=(118, 175, 143), outline=PALETTE["ink"], width=5)
-    d.rounded_rectangle((1195, 565, 1290, 625), radius=18, fill=(255, 255, 255), outline=PALETTE["ink"], width=4)
-    for x, y, r in [(185, 175, 34), (270, 260, 24), (1370, 145, 36), (1425, 700, 28)]:
-        draw_bubble(d, x, y, r)
-    return save_img(img, "slide09_cough_etiquette.png")
-
-
-def slide10():
-    img, d = gradient_background((244, 241, 255), (222, 250, 241))
-    add_confetti(d, 10, 70)
-    draw_hand(d, 375, 470, 1.3)
-    # nail clipper
-    d.rounded_rectangle((585, 275, 860, 350), radius=22, fill=(180, 205, 220), outline=PALETTE["ink"], width=6)
-    d.rounded_rectangle((645, 220, 875, 275), radius=18, fill=(220, 236, 245), outline=PALETTE["ink"], width=5)
-    d.line((825, 240, 900, 175), fill=PALETTE["ink"], width=8)
-    # bandage
-    d.rounded_rectangle((750, 520, 1060, 635), radius=45, fill=(255, 207, 164), outline=PALETTE["ink"], width=6)
-    d.rounded_rectangle((875, 545, 940, 610), radius=14, fill=(255, 236, 204), outline=(190, 130, 100), width=3)
-    for x in [805, 842, 985, 1022]:
-        d.ellipse((x - 8, 572, x + 8, 588), fill=(220, 160, 130))
-    # personal items
-    d.rounded_rectangle((1180, 175, 1325, 480), radius=32, fill=(130, 215, 255), outline=PALETTE["ink"], width=6)
-    d.arc((1305, 260, 1410, 385), -90, 90, fill=PALETTE["ink"], width=8)
-    d.rounded_rectangle((1180, 545, 1355, 760), radius=45, fill=(255, 255, 255), outline=PALETTE["pink"], width=8)
-    for yy in [585, 630, 675, 720]:
-        d.line((1210, yy, 1320, yy), fill=(255, 190, 210), width=7)
-    for x, y in [(145, 195), (1015, 160), (1450, 485), (695, 745)]:
-        draw_star(d, x, y, 26)
-    return save_img(img, "slide10_clean_habits.png")
-
-
-def slide11():
-    img, d = gradient_background((235, 250, 255), (255, 244, 226))
-    add_confetti(d, 11, 70)
-    # school map
-    d.rounded_rectangle((100, 115, 900, 760), radius=45, fill=(255, 255, 255), outline=PALETTE["deep_blue"], width=9)
-    rooms = [
-        (150, 170, 360, 330, PALETTE["yellow"]),
-        (405, 170, 615, 330, PALETTE["mint"]),
-        (660, 170, 850, 330, PALETTE["pink"]),
-        (150, 380, 360, 560, PALETTE["orange"]),
-        (405, 380, 615, 560, PALETTE["blue"]),
-        (660, 380, 850, 560, PALETTE["purple"]),
+def scene_wash_times():
+    a = Art((255, 250, 229), (226, 249, 255), 5)
+    a.rounded((175, 138, 1745, 884), radius=78, fill=(255, 255, 255, 88), outline=(255, 255, 255, 170), width=3)
+    icons = [
+        (430, 320, "meal", GOLD),
+        (740, 285, "toilet", CYAN),
+        (1085, 285, "sneeze", PINK),
+        (1400, 325, "play", LAVENDER),
+        (590, 665, "pet", MINT),
+        (1135, 665, "home", CORAL),
     ]
-    for x1, y1, x2, y2, col in rooms:
-        d.rounded_rectangle((x1, y1, x2, y2), radius=26, fill=col, outline=PALETTE["ink"], width=4)
-        draw_drop(d, (x1 + x2) / 2, (y1 + y2) / 2, 22, fill=(255, 255, 255), outline=PALETTE["ink"])
-    d.line((250, 625, 780, 625), fill=(255, 194, 89), width=16)
-    for x in [250, 410, 580, 780]:
-        d.ellipse((x - 20, 605, x + 20, 645), fill=PALETTE["yellow"], outline=PALETTE["ink"], width=3)
-    draw_clipboard(d, 1075, 210, 1.0)
-    draw_child(d, 1005, 615, 0.75, PALETTE["pink"], pose="wave")
-    d.ellipse((930, 130, 1070, 270), fill=(230, 255, 255), outline=PALETTE["deep_blue"], width=8)
-    d.line((1040, 250, 1125, 330), fill=PALETTE["deep_blue"], width=18)
-    for x, y in [(1300, 110), (1425, 720), (90, 790), (960, 790)]:
-        draw_star(d, x, y, 25)
-    return save_img(img, "slide11_school_detective.png")
+    for item in icons:
+        draw_mini_icon(a, *item)
+    draw_child(a, 960, 600, .78, shirt=(116, 218, 190), accent=GOLD)
+    return a
 
 
-def slide12():
-    img, d = gradient_background((220, 245, 255), (255, 246, 214))
-    add_confetti(d, 12, 100)
-    d.polygon([(250, 640), (1350, 640), (1460, 820), (140, 820)], fill=(255, 255, 255), outline=PALETTE["deep_blue"])
-    draw_child(d, 430, 465, 1.05, PALETTE["pink"], pose="wave")
-    draw_child(d, 800, 450, 1.18, PALETTE["yellow"], pose="wave")
-    draw_child(d, 1180, 465, 1.05, PALETTE["mint"], pose="wave")
-    for cx, cy, col in [(430, 210, PALETTE["pink"]), (800, 175, PALETTE["yellow"]), (1180, 210, PALETTE["mint"])]:
-        d.polygon(star_points(cx, cy, 78, 35), fill=col, outline=PALETTE["ink"])
-        draw_drop(d, cx, cy, 28, fill=PALETTE["water"], outline=PALETTE["ink"])
-    draw_soap(d, 230, 550, 0.8, PALETTE["purple"])
-    draw_faucet(d, 1280, 510, 0.6)
-    for x, y, r in [(170, 170, 42), (285, 260, 30), (1395, 185, 42), (1305, 300, 28), (710, 755, 35), (945, 730, 28)]:
-        draw_bubble(d, x, y, r)
-    return save_img(img, "slide12_pledge.png")
+def scene_steps():
+    a = Art((234, 249, 255), (248, 240, 255), 6)
+    points = [(360, 300), (640, 240), (940, 270), (1235, 345), (1370, 680), (985, 790), (565, 690)]
+    for i in range(len(points) - 1):
+        a.draw.line(sbox((*points[i], *points[i + 1])), fill=rgba(BLUE, 120), width=sc(10))
+    for i, (cx, cy) in enumerate(points, 1):
+        color = [MINT, GOLD, CYAN, PINK, LAVENDER, CORAL, MINT][i - 1]
+        a.circle(cx, cy, 115, fill=rgba(WHITE, 190), outline=rgba(color, 235), width=5)
+        draw_two_hands(a, cx, cy + 28, .32)
+        a.circle(cx - 72, cy - 72, 30, fill=rgba(color, 250), outline=rgba(WHITE, 230), width=2, shadow=False)
+        # The number is only decorative; full Chinese labels are added in PPT.
+        for k in range(i):
+            draw_bubble(a, cx + 75 - k * 18, cy - 72 + k * 9, 9, 125)
+    draw_soap(a, 1480, 775, .64, SOAP)
+    return a
 
 
-def add_bg(slide, img_path):
-    slide.shapes.add_picture(str(img_path), 0, 0, width=Inches(SLIDE_W), height=Inches(SLIDE_H))
+def scene_20_seconds():
+    a = Art((255, 248, 226), (225, 249, 255), 7)
+    draw_clock(a, 960, 445, 250)
+    a.rounded((240, 650, 1680, 855), radius=64, fill=(255, 255, 255, 100), outline=(255, 255, 255, 175), width=3)
+    draw_hand(a, 445, 735, .65)
+    draw_soap(a, 675, 790, .60, SOAP)
+    draw_faucet(a, 1225, 670, .62)
+    for x, y, r in [(360, 245, 34), (455, 330, 22), (1410, 275, 38), (1510, 370, 26), (1170, 205, 20)]:
+        draw_bubble(a, x, y, r, 120)
+    for mx, my in [(650, 260), (1300, 560), (510, 545), (1335, 215)]:
+        a.draw.ellipse(sbox((mx - 18, my - 18, mx + 18, my + 18)), fill=rgba(LAVENDER, 230), outline=rgba(WHITE, 210), width=sc(2))
+        a.draw.line(sbox((mx + 16, my - 8, mx + 16, my - 90)), fill=rgba(LAVENDER, 230), width=sc(7))
+    return a
 
 
-def set_text_style(run, size=24, bold=False, color=(53, 75, 95)):
+def scene_experiment():
+    a = Art((230, 255, 238), (255, 248, 227), 8)
+    a.rounded((165, 690, 1755, 900), radius=62, fill=rgba((255, 217, 152), 225), outline=rgba(WHITE, 190), width=3)
+    a.circle(750, 485, 255, fill=rgba((232, 249, 255), 190), outline=rgba(BLUE, 230), width=8)
+    a.draw.ellipse(sbox((560, 370, 940, 600)), fill=rgba((134, 216, 255), 205), outline=rgba(WHITE, 210), width=sc(4))
+    random.seed(82)
+    for _ in range(90):
+        x = random.randint(585, 915)
+        y = random.randint(390, 575)
+        if ((x - 750) / 195) ** 2 + ((y - 485) / 110) ** 2 < 1:
+            a.draw.ellipse(sbox((x - 4, y - 4, x + 4, y + 4)), fill=rgba(NAVY, 160))
+    for angle in range(0, 360, 25):
+        x1 = 750 + cos(angle * pi / 180) * 75
+        y1 = 485 + sin(angle * pi / 180) * 42
+        x2 = 750 + cos(angle * pi / 180) * 170
+        y2 = 485 + sin(angle * pi / 180) * 98
+        a.draw.line(sbox((x1, y1, x2, y2)), fill=rgba(WHITE, 130), width=sc(4))
+    draw_soap(a, 1275, 520, .82, PINK)
+    draw_hand(a, 1275, 315, .64)
+    draw_child(a, 310, 625, .78, shirt=MINT, accent=GOLD)
+    return a
+
+
+def scene_cough():
+    a = Art((255, 240, 240), (228, 249, 255), 9)
+    draw_child(a, 575, 650, 1.02, shirt=GOLD, accent=CYAN)
+    a.rounded((720, 455, 900, 560), radius=45, fill=rgba(SKIN, 245), outline=rgba(WHITE, 185), width=3)
+    a.rounded((870, 430, 1040, 575), radius=28, fill=rgba(WHITE, 230), outline=rgba(BLUE, 220), width=4)
+    a.rounded((1070, 250, 1160, 720), radius=40, fill=(255, 255, 255, 150), outline=rgba(CORAL, 230), width=8)
+    for yy in [335, 485, 635]:
+        a.draw.line(sbox((1090, yy, 1140, yy)), fill=rgba(CORAL, 230), width=sc(12))
+    for x, y, r, c in [(1260, 310, 44, MINT), (1420, 460, 40, PINK), (1290, 650, 36, LAVENDER)]:
+        draw_germ(a, x, y, r, c, "wow")
+    a.rounded((1370, 720, 1555, 910), radius=28, fill=rgba((178, 225, 197), 240), outline=rgba(NAVY, 220), width=4)
+    a.draw.rectangle(sbox((1348, 682, 1578, 730)), fill=rgba((108, 168, 136), 245), outline=rgba(NAVY, 220), width=sc(3))
+    return a
+
+
+def scene_clean_habits():
+    a = Art((244, 241, 255), (224, 251, 242), 10)
+    a.rounded((180, 150, 1740, 865), radius=78, fill=(255, 255, 255, 92), outline=(255, 255, 255, 170), width=3)
+    draw_hand(a, 455, 540, 1.05)
+    a.rounded((700, 310, 1035, 395), radius=25, fill=rgba((184, 209, 224), 240), outline=rgba(NAVY, 220), width=4)
+    a.rounded((780, 245, 1060, 310), radius=18, fill=rgba((225, 239, 248), 245), outline=rgba(NAVY, 220), width=4)
+    a.draw.line(sbox((1000, 270, 1090, 190)), fill=rgba(NAVY, 220), width=sc(8))
+    a.rounded((790, 570, 1145, 700), radius=52, fill=rgba((255, 210, 171), 245), outline=rgba(NAVY, 220), width=4)
+    a.rounded((935, 598, 1005, 672), radius=15, fill=rgba((255, 239, 211), 245), outline=rgba(SKIN_DARK, 220), width=2)
+    a.rounded((1375, 245, 1530, 560), radius=34, fill=rgba((137, 219, 255), 235), outline=rgba(NAVY, 220), width=4)
+    a.rounded((1350, 650, 1565, 850), radius=44, fill=rgba(WHITE, 235), outline=rgba(PINK, 230), width=5)
+    for yy in [690, 735, 780, 825]:
+        a.draw.line(sbox((1395, yy, 1525, yy)), fill=rgba(PINK, 185), width=sc(7))
+    for x, y in [(250, 260), (1215, 205), (1575, 350), (1220, 800)]:
+        draw_sparkle(a, x, y, 26)
+    return a
+
+
+def scene_detective():
+    a = Art((232, 249, 255), (255, 248, 230), 11)
+    a.rounded((165, 145, 1080, 850), radius=62, fill=rgba(WHITE, 170), outline=rgba(BLUE, 210), width=5)
+    rooms = [
+        (230, 220, MINT),
+        (505, 220, GOLD),
+        (780, 220, PINK),
+        (230, 510, CORAL),
+        (505, 510, CYAN),
+        (780, 510, LAVENDER),
+    ]
+    for x, y, color in rooms:
+        a.rounded((x, y, x + 205, y + 180), radius=26, fill=rgba(color, 225), outline=rgba(WHITE, 200), width=3, shadow=False)
+        draw_drop(a, x + 103, y + 90, 28, WHITE, 225)
+    a.draw.line(sbox((310, 755, 945, 755)), fill=rgba(GOLD, 190), width=sc(16))
+    for x in [310, 485, 660, 835, 945]:
+        a.circle(x, 755, 18, fill=rgba(GOLD, 255), outline=rgba(WHITE, 220), width=2, shadow=False)
+    a.rounded((1280, 210, 1585, 645), radius=35, fill=rgba(CREAM, 245), outline=rgba(NAVY, 220), width=5)
+    a.rounded((1370, 175, 1495, 245), radius=22, fill=rgba(CORAL, 240), outline=rgba(NAVY, 220), width=4)
+    for i in range(5):
+        yy = 305 + i * 60
+        a.rounded((1320, yy - 16, 1350, yy + 16), radius=8, fill=rgba(MINT, 240), outline=rgba(NAVY, 220), width=2, shadow=False)
+        a.draw.line(sbox((1380, yy, 1540, yy)), fill=rgba(NAVY, 115), width=sc(4))
+    draw_child(a, 1225, 775, .68, shirt=PINK, accent=GOLD)
+    a.circle(1180, 245, 74, fill=rgba((230, 255, 255), 185), outline=rgba(BLUE, 220), width=5)
+    a.draw.line(sbox((1230, 300, 1320, 385)), fill=rgba(BLUE, 220), width=sc(18))
+    return a
+
+
+def scene_pledge():
+    a = Art((219, 246, 255), (255, 249, 225), 12)
+    a.rounded((205, 160, 1715, 895), radius=82, fill=(255, 255, 255, 86), outline=(255, 255, 255, 175), width=3)
+    a.rounded((250, 745, 1670, 925), radius=55, fill=rgba(WHITE, 210), outline=rgba(BLUE, 180), width=4)
+    draw_child(a, 525, 650, .92, shirt=PINK, accent=GOLD)
+    draw_child(a, 960, 625, 1.05, shirt=GOLD, accent=CYAN)
+    draw_child(a, 1395, 650, .92, shirt=MINT, accent=GOLD)
+    for cx, cy, color in [(525, 290, PINK), (960, 250, GOLD), (1395, 290, MINT)]:
+        a.draw.polygon([tuple(sc(v) for v in p) for p in star_points(cx, cy, 78, 35)], fill=rgba(color, 235), outline=rgba(WHITE, 230))
+        draw_drop(a, cx, cy, 26, CYAN, 225)
+    draw_soap(a, 300, 670, .62, LAVENDER)
+    draw_faucet(a, 1515, 625, .50)
+    for x, y, r in [(255, 265, 42), (1545, 260, 42), (760, 850, 32), (1160, 820, 28)]:
+        draw_bubble(a, x, y, r, 125)
+    return a
+
+
+SCENES = [
+    ("slide01_premium_cover.png", scene_cover),
+    ("slide02_premium_busy_hands.png", scene_busy_hands),
+    ("slide03_premium_germs.png", scene_germs),
+    ("slide04_premium_shield.png", scene_shield),
+    ("slide05_premium_wash_times.png", scene_wash_times),
+    ("slide06_premium_steps.png", scene_steps),
+    ("slide07_premium_20_seconds.png", scene_20_seconds),
+    ("slide08_premium_experiment.png", scene_experiment),
+    ("slide09_premium_cough.png", scene_cough),
+    ("slide10_premium_clean_habits.png", scene_clean_habits),
+    ("slide11_premium_detective.png", scene_detective),
+    ("slide12_premium_pledge.png", scene_pledge),
+]
+
+
+def add_bg(slide, image_path):
+    slide.shapes.add_picture(str(image_path), 0, 0, width=Inches(SLIDE_W), height=Inches(SLIDE_H))
+
+
+def style_run(run, size=22, bold=False, color=NAVY):
     run.font.name = "Microsoft YaHei"
     run.font.size = Pt(size)
     run.font.bold = bold
     run.font.color.rgb = RGBColor(*color)
 
 
-def add_box(slide, x, y, w, h, fill=(255, 255, 255), outline=(255, 255, 255), transparency=8, radius=True):
+def add_box(slide, x, y, w, h, fill=WHITE, outline=WHITE, transparency=10, radius=True):
     shape_type = MSO_AUTO_SHAPE_TYPE.ROUNDED_RECTANGLE if radius else MSO_AUTO_SHAPE_TYPE.RECTANGLE
     box = slide.shapes.add_shape(shape_type, Inches(x), Inches(y), Inches(w), Inches(h))
     box.fill.solid()
     box.fill.fore_color.rgb = RGBColor(*fill)
     box.fill.transparency = transparency
     box.line.color.rgb = RGBColor(*outline)
-    box.line.width = Pt(2)
+    box.line.transparency = 15
+    box.line.width = Pt(1.5)
     return box
 
 
-def add_text(slide, x, y, w, h, text, size=24, bold=False, color=(53, 75, 95), align=PP_ALIGN.LEFT):
+def add_text(slide, x, y, w, h, text, size=22, bold=False, color=NAVY, align=PP_ALIGN.LEFT):
     tx = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
     tf = tx.text_frame
     tf.clear()
@@ -586,40 +613,40 @@ def add_text(slide, x, y, w, h, text, size=24, bold=False, color=(53, 75, 95), a
     p.alignment = align
     p.text = text
     for run in p.runs:
-        set_text_style(run, size, bold, color)
+        style_run(run, size=size, bold=bold, color=color)
     return tx
 
 
 def add_title(slide, title, subtitle=None):
-    add_box(slide, 0.45, 0.28, 12.45, 0.88, fill=(255, 255, 255), outline=(255, 220, 97), transparency=2)
-    add_text(slide, 0.72, 0.35, 11.9, 0.55, title, size=28, bold=True, color=(38, 99, 170), align=PP_ALIGN.CENTER)
+    add_box(slide, .45, .28, 12.43, .92, fill=WHITE, outline=(210, 239, 255), transparency=7)
+    add_text(slide, .78, .38, 11.78, .42, title, size=26, bold=True, color=(25, 93, 154), align=PP_ALIGN.CENTER)
     if subtitle:
-        add_text(slide, 0.95, 0.88, 11.4, 0.26, subtitle, size=12, bold=False, color=(85, 107, 130), align=PP_ALIGN.CENTER)
+        add_text(slide, 1.15, .82, 11.05, .25, subtitle, size=10.5, color=(74, 104, 133), align=PP_ALIGN.CENTER)
 
 
 def add_footer(slide, page):
-    add_box(slide, 11.95, 7.05, 0.85, 0.28, fill=(255, 255, 255), outline=(122, 196, 255), transparency=18)
-    add_text(slide, 12.05, 7.08, 0.65, 0.18, str(page), size=10, bold=True, color=(38, 99, 170), align=PP_ALIGN.CENTER)
+    add_box(slide, 11.95, 7.03, .88, .30, fill=WHITE, outline=(198, 232, 255), transparency=12)
+    add_text(slide, 12.07, 7.07, .62, .17, f"{page:02d}", size=9, bold=True, color=(25, 93, 154), align=PP_ALIGN.CENTER)
 
 
-def add_bullets(slide, x, y, w, h, bullets, size=20, fill=(255, 255, 255), color=(53, 75, 95)):
-    add_box(slide, x, y, w, h, fill=fill, outline=(255, 255, 255), transparency=7)
-    tx = slide.shapes.add_textbox(Inches(x + 0.2), Inches(y + 0.12), Inches(w - 0.36), Inches(h - 0.18))
+def add_badge(slide, x, y, w, h, text, fill=(255, 246, 191), color=NAVY, size=14):
+    add_box(slide, x, y, w, h, fill=fill, outline=WHITE, transparency=0)
+    add_text(slide, x + .08, y + .05, w - .16, h - .10, text, size=size, bold=True, color=color, align=PP_ALIGN.CENTER)
+
+
+def add_bullets(slide, x, y, w, h, bullets, size=16, fill=WHITE):
+    add_box(slide, x, y, w, h, fill=fill, outline=WHITE, transparency=8)
+    tx = slide.shapes.add_textbox(Inches(x + .22), Inches(y + .16), Inches(w - .42), Inches(h - .25))
     tf = tx.text_frame
     tf.clear()
     tf.word_wrap = True
     for idx, text in enumerate(bullets):
         p = tf.paragraphs[0] if idx == 0 else tf.add_paragraph()
         p.text = "• " + text
-        p.space_after = Pt(6)
-        p.line_spacing = 1.15
+        p.space_after = Pt(5)
+        p.line_spacing = 1.12
         for run in p.runs:
-            set_text_style(run, size, False, color)
-
-
-def add_card(slide, x, y, w, h, text, fill, size=18):
-    add_box(slide, x, y, w, h, fill=fill, outline=(255, 255, 255), transparency=0)
-    add_text(slide, x + 0.08, y + 0.08, w - 0.16, h - 0.16, text, size=size, bold=True, color=(53, 75, 95), align=PP_ALIGN.CENTER)
+            style_run(run, size=size, color=(45, 74, 103))
 
 
 def build_ppt(image_paths):
@@ -627,67 +654,59 @@ def build_ppt(image_paths):
     prs.slide_width = Inches(SLIDE_W)
     prs.slide_height = Inches(SLIDE_H)
     blank = prs.slide_layouts[6]
-
     slides = []
-    for path in image_paths:
+    for image_path in image_paths:
         slide = prs.slides.add_slide(blank)
-        add_bg(slide, path)
+        add_bg(slide, image_path)
         slides.append(slide)
 
-    # 1
-    add_box(slides[0], 2.1, 0.65, 9.15, 1.95, fill=(255, 255, 255), outline=(255, 220, 97), transparency=0)
-    add_text(slides[0], 2.35, 0.82, 8.65, 0.78, "小学生手卫生", size=44, bold=True, color=(38, 99, 170), align=PP_ALIGN.CENTER)
-    add_text(slides[0], 2.55, 1.65, 8.25, 0.43, "二年级健康科普课：和泡泡一起打败细菌小怪兽", size=18, bold=True, color=(240, 118, 88), align=PP_ALIGN.CENTER)
-    add_card(slides[0], 5.05, 6.45, 3.25, 0.58, "准备好了吗？伸出小手！", (255, 242, 151), size=17)
+    add_box(slides[0], 2.2, .72, 8.92, 1.55, fill=WHITE, outline=(214, 240, 255), transparency=4)
+    add_text(slides[0], 2.55, .88, 8.25, .58, "小学生手卫生", size=39, bold=True, color=(24, 92, 154), align=PP_ALIGN.CENTER)
+    add_text(slides[0], 2.85, 1.56, 7.65, .30, "二年级健康科普课 | 和泡泡一起守护干净小手", size=14, bold=True, color=(224, 100, 87), align=PP_ALIGN.CENTER)
+    add_badge(slides[0], 4.86, 6.55, 3.62, .48, "伸出小手，开始健康冒险", fill=(255, 239, 166), size=15)
     add_footer(slides[0], 1)
 
-    # 2
     add_title(slides[1], "小手每天很忙")
-    add_bullets(slides[1], 0.55, 1.35, 3.8, 2.35, [
+    add_bullets(slides[1], .62, 1.45, 4.15, 2.34, [
         "写字、玩耍、摸门把手，小手到处帮忙。",
         "看不见的小细菌，也可能悄悄搭便车。",
-        "别担心！学会洗手，小手就能变清爽。"
-    ], size=18)
-    add_card(slides[1], 4.65, 6.55, 4.05, 0.55, "想一想：今天你的小手碰过什么？", (255, 242, 151), size=16)
+        "学会洗手，小手就能清爽又可靠。"
+    ], size=16.5)
+    add_badge(slides[1], 4.55, 6.66, 4.25, .46, "互动：今天你的小手碰过什么？", fill=(255, 239, 166), size=14.5)
     add_footer(slides[1], 2)
 
-    # 3
     add_title(slides[2], "细菌病毒在哪里？")
-    add_bullets(slides[2], 0.55, 1.35, 4.15, 2.7, [
+    add_bullets(slides[2], .62, 1.42, 4.08, 2.62, [
         "它们很小很小，肉眼看不见。",
         "喜欢躲在手指缝、指甲边和手心里。",
         "有些会让我们肚子疼、咳嗽或发烧。"
-    ], size=18, fill=(255, 255, 255))
-    add_card(slides[2], 0.78, 4.35, 3.55, 0.58, "不是所有细菌都坏，但脏手要洗干净！", (220, 250, 241), size=15)
+    ], size=16.5)
+    add_badge(slides[2], .82, 4.30, 3.55, .48, "脏手要洗干净，健康更安心", fill=(218, 250, 239), size=13.5)
     add_footer(slides[2], 3)
 
-    # 4
     add_title(slides[3], "洗手像给身体加护盾")
-    add_bullets(slides[3], 0.65, 1.45, 3.9, 2.45, [
+    add_bullets(slides[3], .72, 1.45, 4.02, 2.45, [
         "洗掉灰尘、油油和脏东西。",
         "减少细菌从手跑到口、眼、鼻。",
         "保护自己，也保护同学和家人。"
-    ], size=18, fill=(255, 255, 255))
-    add_card(slides[3], 9.25, 6.35, 3.35, 0.62, "干净小手 = 健康加分", (255, 242, 151), size=18)
+    ], size=16.5)
+    add_badge(slides[3], 9.05, 6.42, 3.45, .50, "干净小手 = 健康加分", fill=(255, 239, 166), size=16)
     add_footer(slides[3], 4)
 
-    # 5
     add_title(slides[4], "这些时候一定要洗手")
-    wash_times = [
-        ("吃东西前", 1.02, 1.98, (255, 230, 236)),
-        ("上厕所后", 3.55, 1.75, (255, 245, 181)),
-        ("咳嗽喷嚏后", 6.6, 1.75, (255, 222, 191)),
-        ("户外玩耍后", 9.38, 2.15, (221, 242, 255)),
-        ("摸宠物后", 1.98, 6.06, (235, 226, 255)),
-        ("回家或进教室后", 8.28, 6.1, (220, 250, 230)),
-    ]
-    for text, x, y, fill in wash_times:
-        add_card(slides[4], x, y, 2.1, 0.48, text, fill, size=14)
+    for text, x, y, color in [
+        ("吃东西前", 2.15, 2.65, (255, 239, 166)),
+        ("上厕所后", 4.28, 2.42, (214, 244, 255)),
+        ("咳嗽喷嚏后", 6.55, 2.42, (255, 222, 229)),
+        ("户外玩耍后", 8.62, 2.76, (231, 224, 255)),
+        ("摸宠物后", 3.18, 5.38, (218, 250, 239)),
+        ("回家或进教室后", 6.75, 5.40, (255, 230, 204)),
+    ]:
+        add_badge(slides[4], x, y, 1.72, .42, text, fill=color, size=12.5)
     add_footer(slides[4], 5)
 
-    # 6
     add_title(slides[5], "七步洗手法：小手面面俱到")
-    steps = [
+    add_bullets(slides[5], 9.05, 1.32, 3.62, 4.75, [
         "1 掌心相对搓一搓",
         "2 手背交叉搓一搓",
         "3 手指交叉搓一搓",
@@ -695,97 +714,84 @@ def build_ppt(image_paths):
         "5 大拇指转一转",
         "6 指尖掌心画圈圈",
         "7 手腕也要洗干净",
-    ]
-    add_bullets(slides[5], 9.15, 1.35, 3.55, 4.55, steps, size=15, fill=(255, 255, 255))
-    add_card(slides[5], 4.65, 6.9, 4.15, 0.42, "每一步都搓到，细菌没处躲！", (255, 242, 151), size=15)
+    ], size=13.5)
+    add_badge(slides[5], 4.34, 6.92, 4.72, .38, "每一步都搓到，细菌没处躲", fill=(255, 239, 166), size=13)
     add_footer(slides[5], 6)
 
-    # 7
     add_title(slides[6], "洗手小口诀")
-    add_card(slides[6], 0.65, 1.45, 2.05, 0.82, "湿一湿", (221, 242, 255), size=22)
-    add_card(slides[6], 0.65, 2.55, 2.05, 0.82, "抹香皂", (235, 226, 255), size=22)
-    add_card(slides[6], 0.65, 3.65, 2.05, 0.82, "搓20秒", (255, 242, 151), size=22)
-    add_card(slides[6], 0.65, 4.75, 2.05, 0.82, "冲干净", (220, 250, 230), size=22)
-    add_card(slides[6], 0.65, 5.85, 2.05, 0.82, "擦干手", (255, 230, 236), size=22)
-    add_bullets(slides[6], 9.15, 1.55, 3.45, 2.25, [
+    for i, (text, color) in enumerate([
+        ("湿一湿", (214, 244, 255)),
+        ("抹香皂", (231, 224, 255)),
+        ("搓20秒", (255, 239, 166)),
+        ("冲干净", (218, 250, 239)),
+        ("擦干手", (255, 222, 229)),
+    ]):
+        add_badge(slides[6], .72, 1.38 + i * 1.05, 2.08, .62, text, fill=color, size=18)
+    add_bullets(slides[6], 9.12, 1.50, 3.40, 2.25, [
         "可以唱一遍生日歌。",
         "手心、手背、指缝都要有泡泡。",
         "擦干后，小手不再湿哒哒。"
-    ], size=17)
-    add_card(slides[6], 8.95, 5.85, 3.85, 0.62, "20秒，让泡泡认真工作！", (255, 242, 151), size=17)
+    ], size=15)
+    add_badge(slides[6], 9.00, 5.88, 3.82, .50, "20秒，让泡泡认真工作", fill=(255, 239, 166), size=15)
     add_footer(slides[6], 7)
 
-    # 8
     add_title(slides[7], "泡泡科学小实验")
-    add_bullets(slides[7], 9.0, 1.25, 3.75, 3.55, [
+    add_bullets(slides[7], 9.08, 1.30, 3.58, 3.44, [
         "盘里倒清水，撒一点胡椒粉。",
         "手指先碰清水，胡椒还在附近。",
         "手指沾肥皂再碰，胡椒会散开。",
         "在老师或家长陪同下做实验。"
-    ], size=16, fill=(255, 255, 255))
-    add_card(slides[7], 4.6, 6.62, 4.15, 0.58, "肥皂能帮水带走油油和脏东西", (220, 250, 241), size=16)
+    ], size=14.5)
+    add_badge(slides[7], 4.55, 6.60, 4.34, .48, "肥皂能帮水带走油油和脏东西", fill=(218, 250, 239), size=14)
     add_footer(slides[7], 8)
 
-    # 9
     add_title(slides[8], "打喷嚏也要讲卫生")
-    add_bullets(slides[8], 0.65, 1.45, 3.85, 3.35, [
+    add_bullets(slides[8], .68, 1.45, 3.95, 3.30, [
         "用纸巾或手肘挡住口鼻。",
         "用过的纸巾丢进垃圾桶。",
         "咳嗽、打喷嚏后要洗手。",
         "别用脏手揉眼睛、抠鼻子。"
-    ], size=17, fill=(255, 255, 255))
-    add_card(slides[8], 8.45, 6.45, 3.85, 0.6, "礼貌一挡，细菌少飞翔", (255, 242, 151), size=17)
+    ], size=15.5)
+    add_badge(slides[8], 8.42, 6.47, 3.85, .48, "礼貌一挡，细菌少飞翔", fill=(255, 239, 166), size=15)
     add_footer(slides[8], 9)
 
-    # 10
     add_title(slides[9], "让小手保持干净")
-    add_bullets(slides[9], 0.7, 1.35, 3.75, 3.15, [
+    add_bullets(slides[9], .72, 1.36, 3.80, 3.10, [
         "勤剪指甲，别把脏东西藏起来。",
         "不咬手指，不用手乱摸脸。",
         "小伤口贴创可贴，保持干净。",
         "毛巾、水杯等个人物品不混用。"
-    ], size=17, fill=(255, 255, 255))
-    add_card(slides[9], 8.0, 6.55, 4.05, 0.58, "干净小习惯，每天都能做", (220, 250, 230), size=17)
+    ], size=15.2)
+    add_badge(slides[9], 7.82, 6.55, 4.15, .48, "干净小习惯，每天都能做", fill=(218, 250, 239), size=15)
     add_footer(slides[9], 10)
 
-    # 11
     add_title(slides[10], "校园洗手小侦探")
-    add_bullets(slides[10], 9.25, 1.15, 3.25, 1.0, [
+    add_bullets(slides[10], 8.50, 1.25, 3.95, 1.14, [
         "找一找：学校里哪里可以洗手？",
         "记一记：今天抓住几个洗手机会？"
-    ], size=14, fill=(255, 255, 255))
-    add_card(slides[10], 9.7, 6.2, 2.85, 0.6, "完成一次，给自己一颗星！", (255, 242, 151), size=15)
-    add_card(slides[10], 2.05, 6.95, 4.55, 0.35, "课堂互动：做一名“洗手提醒员”", (221, 242, 255), size=13)
+    ], size=13.5)
+    add_badge(slides[10], 8.95, 6.10, 3.35, .48, "完成一次，给自己一颗星", fill=(255, 239, 166), size=14)
+    add_badge(slides[10], 2.08, 6.93, 4.78, .34, "课堂互动：做一名“洗手提醒员”", fill=(214, 244, 255), size=12)
     add_footer(slides[10], 11)
 
-    # 12
     add_title(slides[11], "我是手卫生小英雄")
-    add_box(slides[11], 2.25, 1.25, 8.85, 1.55, fill=(255, 255, 255), outline=(255, 220, 97), transparency=2)
-    add_text(slides[11], 2.55, 1.42, 8.25, 0.42, "我承诺：", size=24, bold=True, color=(240, 118, 88), align=PP_ALIGN.CENTER)
-    add_text(slides[11], 2.65, 1.93, 8.05, 0.48, "吃前便后洗手，搓够20秒，提醒伙伴一起做！", size=20, bold=True, color=(38, 99, 170), align=PP_ALIGN.CENTER)
-    add_card(slides[11], 4.15, 6.55, 5.0, 0.62, "小手干净，健康同行！", (255, 242, 151), size=22)
+    add_box(slides[11], 2.18, 1.24, 8.98, 1.45, fill=WHITE, outline=(214, 240, 255), transparency=4)
+    add_text(slides[11], 2.60, 1.38, 8.18, .34, "我承诺：", size=22, bold=True, color=(224, 100, 87), align=PP_ALIGN.CENTER)
+    add_text(slides[11], 2.64, 1.88, 8.10, .42, "吃前便后洗手，搓够20秒，提醒伙伴一起做！", size=18, bold=True, color=(24, 92, 154), align=PP_ALIGN.CENTER)
+    add_badge(slides[11], 4.16, 6.54, 5.04, .50, "小手干净，健康同行！", fill=(255, 239, 166), size=19)
     add_footer(slides[11], 12)
 
     prs.save(OUT_FILE)
 
 
 def main():
-    image_paths = [
-        slide01(),
-        slide02(),
-        slide03(),
-        slide04(),
-        slide05(),
-        slide06(),
-        slide07(),
-        slide08(),
-        slide09(),
-        slide10(),
-        slide11(),
-        slide12(),
-    ]
+    old_assets = list(ASSET_DIR.glob("slide*.png")) if ASSET_DIR.exists() else []
+    for old_asset in old_assets:
+        old_asset.unlink()
+    image_paths = [save_scene(name, func) for name, func in SCENES]
     build_ppt(image_paths)
     print(f"Generated: {OUT_FILE}")
+    print(f"Slides: {len(image_paths)}")
     print(f"Assets: {ASSET_DIR}")
 
 
